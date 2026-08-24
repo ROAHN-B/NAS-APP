@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>NAS Controller</title>
+  <style>
+    :root {
+      --bg: #09090b; --card: #18181b; --border: #27272a;
+      --text: #fafafa; --dim: #a1a1aa; --accent: #3b82f6;
+      --success: #10b981; --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; padding: 20px 16px; -webkit-tap-highlight-color: transparent; }
+    .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .header h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; }
+    .status-badge { font-size: 0.75rem; padding: 4px 12px; border-radius: 20px; background: rgba(239,68,68,0.15); color: var(--danger); font-weight: 600; }
+    .status-badge.active { background: rgba(16,185,129,0.15); color: var(--success); }
+    
+    .nav-tabs { display: flex; gap: 8px; margin: 20px 0; }
+    .tab-btn { flex: 1; padding: 12px; background: var(--card); color: var(--dim); border: 1px solid var(--border); border-radius: 10px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; }
+    .tab-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+    
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .btn-row { display: flex; gap: 10px; margin-bottom: 16px; }
+    .btn { flex: 1; padding: 12px; border-radius: 10px; border: none; font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: transform 0.1s; }
+    .btn:active { transform: scale(0.98); }
+    .btn-start { background: var(--success); color: #fff; }
+    .btn-stop { background: var(--danger); color: #fff; }
+    
+    .terminal { background: #000; border: 1px solid var(--border); border-radius: 12px; padding: 14px; height: 360px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.8rem; line-height: 1.5; color: #38bdf8; }
+    .terminal-line { margin-bottom: 4px; word-break: break-all; }
+    .terminal-line.stderr { color: #f87171; }
+    .terminal-line.system { color: #facc15; font-weight: bold; }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; text-align: center; }
+    .card h3 { font-size: 1.1rem; margin-bottom: 6px; }
+    .key-input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: monospace; font-size: 0.8rem; margin: 12px 0; }
+    .key-input:focus { outline: none; border-color: var(--accent); }
+    
+    .dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 36px 16px; margin-bottom: 16px; cursor: pointer; transition: all 0.2s; }
+    .dropzone p { color: var(--dim); font-size: 0.9rem; }
+    .file-info { font-weight: 600; margin-top: 10px; color: var(--accent); word-break: break-all; }
+    input[type=file] { display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>NAS Command Hub</h1>
+    <span class="status-badge" id="statusBadge">OFFLINE</span>
+  </div>
+
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('tunnelTab', this)">Tunnel & Logs</button>
+    <button class="tab-btn" onclick="switchTab('decryptTab', this)">SD Decryptor</button>
+  </div>
+
+  <!-- Tab 1: Cloudflare Tunnel & Logs -->
+  <div id="tunnelTab" class="tab-content active">
+    <div class="btn-row">
+      <button class="btn btn-start" onclick="startTunnel()">Start Tunnel</button>
+      <button class="btn btn-stop" onclick="stopTunnel()">Stop Tunnel</button>
+    </div>
+    <div class="terminal" id="terminal">
+      <div class="terminal-line system">[SYSTEM] Ready. Connect to Termux engine.</div>
+    </div>
+  </div>
+
+  <!-- Tab 2: Dynamic SD Card Decryptor -->
+  <div id="decryptTab" class="tab-content">
+    <div class="card">
+      <h3>SD Card Decryptor</h3>
+      <p style="color:var(--dim); font-size:0.85rem;">Drag & drop or select an encrypted file from your SD card.</p>
+      
+      <input type="text" id="aesKeyInput" class="key-input" placeholder="Enter AES-128 Key (Hex bytes)" value="0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C">
+
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+        <p>Drop file here or tap to browse</p>
+        <div class="file-info" id="fileName">No file chosen</div>
+      </div>
+      <input type="file" id="fileInput" onchange="handleFile(this.files[0])">
+      
+      <button class="btn" style="background:var(--accent); color:#fff; width:100%;" id="decryptBtn" onclick="runDecryption()" disabled>Decrypt & Download</button>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:5050';
+    const WS_BASE = 'ws://localhost:5050';
+
+    function switchTab(tabId, el) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      el.classList.add('active');
+    }
+
+    // WebSocket Log Stream
+    let ws;
+    function connectWS() {
+      ws = new WebSocket(WS_BASE);
+      const terminal = document.getElementById('terminal');
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        const line = document.createElement('div');
+        line.className = `terminal-line ${msg.type}`;
+        line.textContent = `[${msg.time}] ${msg.text}`;
+        terminal.appendChild(line);
+        terminal.scrollTop = terminal.scrollHeight;
+      };
+
+      ws.onclose = () => setTimeout(connectWS, 2000);
+    }
+    connectWS();
+
+    // Tunnel API Calls
+    async function startTunnel() {
+      await fetch(`${API_BASE}/api/tunnel/start`, { method: 'POST' });
+      updateStatus(true);
+    }
+
+    async function stopTunnel() {
+      await fetch(`${API_BASE}/api/tunnel/stop`, { method: 'POST' });
+      updateStatus(false);
+    }
+
+    function updateStatus(running) {
+      const badge = document.getElementById('statusBadge');
+      badge.textContent = running ? 'TUNNEL RUNNING' : 'OFFLINE';
+      badge.className = `status-badge ${running ? 'active' : ''}`;
+    }
+
+    setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/tunnel/status`);
+        const data = await res.json();
+        updateStatus(data.running);
+      } catch(e) {
+        updateStatus(false);
+      }
+    }, 3000);
+
+    // Drag-and-Drop & Decryption Flow
+    let selectedFile = null;
+    const dropzone = document.getElementById('dropzone');
+
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.style.borderColor = 'var(--accent)'; });
+    dropzone.addEventListener('dragleave', (e) => { e.preventDefault(); dropzone.style.borderColor = 'var(--border)'; });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.style.borderColor = 'var(--border)';
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+
+    function handleFile(file) {
+      if (!file) return;
+      selectedFile = file;
+      document.getElementById('fileName').textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      document.getElementById('decryptBtn').removeAttribute('disabled');
+    }
+
+    async function runDecryption() {
+      if (!selectedFile) return;
+      const keyString = document.getElementById('aesKeyInput').value.trim();
+      if (!keyString) return alert('Please enter your AES Key.');
+
+      const btn = document.getElementById('decryptBtn');
+      btn.textContent = 'Decrypting Stream...';
+      btn.disabled = true;
+
+      try {
+        const arrayBuffer = await selectedFile.arrayBuffer();
+        const response = await fetch(`${API_BASE}/api/decrypt`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-AES-Key': keyString
+          },
+          body: arrayBuffer
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+
+        const blob = await response.blob();
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = selectedFile.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        btn.textContent = 'Decrypted & Saved!';
+        setTimeout(() => { btn.textContent = 'Decrypt & Download'; btn.disabled = false; }, 2000);
+      } catch (err) {
+        alert('Decryption error: ' + err.message);
+        btn.textContent = 'Decrypt & Download';
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
