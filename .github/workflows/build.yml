@@ -25,9 +25,12 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Add Android Platform
+      - name: Build Web Assets
+        run: npm run build 
+
+      - name: Add/Sync Android Platform
         run: |
-          npx cap add android
+          npx cap add android || true # Fails gracefully if android folder already exists
           npx cap sync android
 
       - name: Build APK with Gradle
