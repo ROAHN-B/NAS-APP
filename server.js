@@ -4,25 +4,75 @@ const WebSocket = require('ws');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Enable CORS for APK communication
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-AES-Key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-AES-Key, X-File-Name, Authorization');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Setup public directory for public web interface
+const PUBLIC_DIR = path.join(__dirname, 'public');
+if (!fs.existsSync(PUBLIC_DIR)) {
+  fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+}
+
+// Automatically create a default open public dashboard page if missing
+const indexPath = path.join(PUBLIC_DIR, 'index.html');
+if (!fs.existsSync(indexPath)) {
+  const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Rohan's NAS</title>
+  <style>
+    body { background: #0b0f19; color: #f3f4f6; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .card { background: #111827; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 350px; text-align: center; }
+    h1 { color: #3b82f6; margin-bottom: 10px; }
+    p { color: #9ca3af; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Rohan's NAS</h1>
+    <p>Storage Engine Online & Operational</p>
+  </div>
+</body>
+</html>`;
+  fs.writeFileSync(indexPath, htmlContent);
+}
+
+app.use(express.static(PUBLIC_DIR));
 
 let tunnelProcess = null;
 const AES_IV = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F]);
+const DECRYPTED_DIR = '/data/data/com.termux/files/home/storage/shared/Download/NAS_Decrypted';
+
+if (!fs.existsSync(DECRYPTED_DIR)) {
+  fs.mkdirSync(DECRYPTED_DIR, { recursive: true });
+}
+
+const activeTokens = new Set();
+
+// Authentication Middleware (Protects App Endpoints)
+function verifyAuth(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (token && activeTokens.has(token)) {
+    next();
+  } else {
+    res.status(401).json({ success: false, error: 'Unauthorized access. Please log in from the app.' });
+  }
+}
 
 function broadcastLog(data, type = 'info') {
   const message = JSON.stringify({ type, text: data.toString(), time: new Date().toLocaleTimeString() });
@@ -31,15 +81,39 @@ function broadcastLog(data, type = 'info') {
   });
 }
 
-// Start Cloudflare Tunnel
-app.post('/api/tunnel/start', (req, res) => {
+// App Login Endpoint
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  // Credentials for your NAS Controller App
+  if (username === 'Admin' && password === 'admin123') {
+    const token = crypto.randomBytes(32).toString('hex');
+    activeTokens.add(token);
+    return res.json({ success: true, token });
+  }
+  res.status(401).json({ success: false, error: 'Invalid username or password.' });
+});
+
+// Start Cloudflare Tunnel (Protected for App)
+app.post('/api/tunnel/start', verifyAuth, (req, res) => {
   if (tunnelProcess) {
     return res.json({ status: 'running', message: 'Tunnel is already running.' });
   }
 
-  tunnelProcess = spawn('cloudflared', ['tunnel', 'run']);
-  broadcastLog('[SYSTEM] Initializing Cloudflare Zero Trust Tunnel...', 'system');
+  tunnelProcess = spawn('cloudflared', [
+    '--config', 
+    '/data/data/com.termux/files/home/.cloudflared/config.yml',
+    'tunnel', 
+    'run', 
+    'ROHAN_NAS'
+  ], {
+    env: { 
+      ...process.env, 
+      HOME: '/data/data/com.termux/files/home',
+      TUNNEL_ORIGIN_CERT: '/data/data/com.termux/files/home/.cloudflared/cert.pem'
+    }
+  });
 
+  broadcastLog('[SYSTEM] Initializing Cloudflare Zero Trust Tunnel...', 'system');
   tunnelProcess.stdout.on('data', (data) => broadcastLog(data, 'stdout'));
   tunnelProcess.stderr.on('data', (data) => broadcastLog(data, 'stderr'));
 
@@ -51,8 +125,8 @@ app.post('/api/tunnel/start', (req, res) => {
   res.json({ status: 'started' });
 });
 
-// Stop Cloudflare Tunnel
-app.post('/api/tunnel/stop', (req, res) => {
+// Stop Cloudflare Tunnel (Protected for App)
+app.post('/api/tunnel/stop', verifyAuth, (req, res) => {
   if (tunnelProcess) {
     tunnelProcess.kill('SIGINT');
     tunnelProcess = null;
@@ -62,15 +136,17 @@ app.post('/api/tunnel/stop', (req, res) => {
   res.json({ status: 'not_running' });
 });
 
-// Tunnel Status
-app.get('/api/tunnel/status', (req, res) => {
+// Tunnel Status (Protected for App)
+app.get('/api/tunnel/status', verifyAuth, (req, res) => {
   res.json({ running: tunnelProcess !== null });
 });
 
-// Dynamic AES-128 CTR SD Card File Decryption
-app.post('/api/decrypt', express.raw({ type: 'application/octet-stream', limit: '1024mb' }), (req, res) => {
+// AES-128-CTR Decryption (Protected for App)
+app.post('/api/decrypt', verifyAuth, express.raw({ type: 'application/octet-stream', limit: '1024mb' }), (req, res) => {
   try {
     const keyString = req.headers['x-aes-key'];
+    const originalFileName = req.headers['x-file-name'] || `decrypted_${Date.now()}.bin`;
+
     if (!keyString) return res.status(400).send('Missing AES Key header.');
 
     const keyArray = keyString.split(',').map(s => parseInt(s.trim(), 16));
@@ -80,12 +156,21 @@ app.post('/api/decrypt', express.raw({ type: 'application/octet-stream', limit: 
 
     const aesKey = Buffer.from(keyArray);
     const decipher = crypto.createDecipheriv('aes-128-ctr', aesKey, AES_IV);
-    const decrypted = Buffer.concat([decipher.update(req.body), decipher.final()]);
+    const decryptedBuffer = Buffer.concat([decipher.update(req.body), decipher.final()]);
 
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.send(decrypted);
+    const savedFilePath = path.join(DECRYPTED_DIR, originalFileName);
+    fs.writeFileSync(savedFilePath, decryptedBuffer);
+
+    res.json({
+      success: true,
+      message: 'File decrypted successfully',
+      fileName: originalFileName,
+      savedPath: savedFilePath,
+      sizeBytes: decryptedBuffer.length
+    });
+
   } catch (err) {
-    res.status(500).send('Decryption failed: ' + err.message);
+    res.status(500).json({ success: false, error: 'Decryption failed: ' + err.message });
   }
 });
 
