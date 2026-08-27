@@ -135,3 +135,16 @@ const PORT = 5050;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[NAS ENGINE] Running on http://localhost:${PORT}`);
 });
+
+// AUTO-START CLOUDFLARE TUNNEL ON BOOT
+  console.log('[SYSTEM] Auto-starting Cloudflare Tunnel...');
+  tunnelProcess = spawn('cloudflared', [
+    '--config', '/data/data/com.termux/files/home/.cloudflared/config.yml',
+    'tunnel', 'run', 'ROHAN_NAS'
+  ], {
+    env: { ...process.env, HOME: '/data/data/com.termux/files/home', TUNNEL_ORIGIN_CERT: '/data/data/com.termux/files/home/.cloudflared/cert.pem' }
+  });
+
+  tunnelProcess.stdout.on('data', (data) => console.log(`[TUNNEL] ${data}`));
+  tunnelProcess.stderr.on('data', (data) => console.log(`[TUNNEL] ${data}`));
+});
