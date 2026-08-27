@@ -134,9 +134,8 @@ app.post('/api/decrypt', verifyAuth, express.raw({ type: 'application/octet-stre
 const PORT = 5050;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[NAS ENGINE] Running on http://localhost:${PORT}`);
-});
-
-// AUTO-START CLOUDFLARE TUNNEL ON BOOT
+  
+  // AUTO-START CLOUDFLARE TUNNEL ON BOOT
   console.log('[SYSTEM] Auto-starting Cloudflare Tunnel...');
   tunnelProcess = spawn('cloudflared', [
     '--config', '/data/data/com.termux/files/home/.cloudflared/config.yml',
