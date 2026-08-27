@@ -1,4 +1,5 @@
 name: Build Android APK
+
 on:
   push:
     branches: [ main ]
@@ -11,13 +12,15 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      # Updated Node.js to a newer LTS to avoid deprecation warnings
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
+      # Upgraded to v5 to fix the runner deprecation warning
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -25,12 +28,9 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Build Web Assets
-        run: npm run build 
-
-      - name: Add/Sync Android Platform
+      - name: Add and Sync Android Platform
         run: |
-          npx cap add android || true # Fails gracefully if android folder already exists
+          npx cap add android || true
           npx cap sync android
 
       - name: Build APK with Gradle
