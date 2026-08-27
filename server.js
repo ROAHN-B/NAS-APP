@@ -58,7 +58,7 @@ function broadcastLog(data, type = 'info') {
 // Login Endpoint
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  if (username === 'Admin' && password === 'admin123') {
+  if (username === 'Admin' && password === 'rohan123') {
     const token = crypto.randomBytes(32).toString('hex');
     activeTokens.add(token);
     return res.json({ success: true, token });
