@@ -10,7 +10,8 @@
     "@capacitor/android": "^6.0.0",
     "@capacitor/cli": "^6.0.0",
     "@capacitor/core": "^6.0.0",
-    "express": "^4.19.2",
-    "ws": "^8.17.0"
+    "express": "^4.22.2",
+    "multicast-dns": "^7.2.5",
+    "ws": "^8.21.3"
   }
 }
