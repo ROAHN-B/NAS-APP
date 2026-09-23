@@ -23,12 +23,10 @@ jobs:
           java-version: '17'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
-      - name: Add Android Platform
-        run: |
-          npx cap add android
-          npx cap sync android
+      - name: Sync Capacitor Android
+        run: npx cap sync android
 
       - name: Build APK with Gradle
         working-directory: ./android
