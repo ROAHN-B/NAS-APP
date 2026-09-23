@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NAS Controller</string>
+    <string name="title_activity_main">NAS Controller</string>
+    <string name="package_name">com.rohan.nascontroller</string>
+    <string name="custom_url_scheme">com.rohan.nascontroller</string>
+</resources>

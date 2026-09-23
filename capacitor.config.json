@@ -1,0 +1,9 @@
+{
+  "appId": "com.rohan.nascontroller",
+  "appName": "NAS Controller",
+  "webDir": "public",
+  "server": {
+    "cleartext": true,
+    "androidScheme": "http"
+  }
+}
