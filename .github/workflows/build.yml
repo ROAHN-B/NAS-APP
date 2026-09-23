@@ -22,8 +22,13 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Install Dependencies
+      - name: Install Root Dependencies
         run: npm install --legacy-peer-deps
+
+      - name: Install Node Backend Dependencies
+        run: |
+          cd nodejs
+          npm install --legacy-peer-deps || true
 
       - name: Sync Capacitor Android
         run: npx cap sync android
@@ -32,7 +37,8 @@ jobs:
         working-directory: ./android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew clean
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
