@@ -1,7 +1,7 @@
 {
   "name": "nas-control-app",
   "version": "1.0.0",
-  "description": "Unified NAS Controller and SD Card Decryptor",
+  "description": "NAS Controller app (Capacitor) plus optional Termux tunnel scripts",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,8 +10,7 @@
     "@capacitor/android": "^6.0.0",
     "@capacitor/cli": "^6.0.0",
     "@capacitor/core": "^6.0.0",
-    "@capawesome-team/capacitor-android-foreground-service": "^6.2.0",
-    "@capawesome/capacitor-nodejs": "^0.1.0",
+    "@capacitor/filesystem": "^6.0.0",
     "express": "^4.22.2",
     "multicast-dns": "^7.2.5",
     "ws": "^8.21.3"

@@ -1,54 +1,334 @@
-<!-- Capacitor Plugin Imports & Logic -->
-  <script type="module">
-    import { AndroidForegroundService } from '@capawesome-team/capacitor-android-foreground-service';
-    import { CapacitorNodeJS } from '@capawesome/capacitor-nodejs';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NAS Controller</title>
+<style>
+:root{--bg:#f4f1e8;--accent:#ffde00;--blue:#3b5bff;--pink:#ff5ca8;--sky:#5cc8ff;--orange:#ff9f1c;--danger:#ff3b30;--ok:#3b5bff;--shadow:5px 5px 0 #000;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:#000;font-family:ui-monospace,'Courier New',Courier,monospace;line-height:1.5;
+  background-image:radial-gradient(rgba(0,0,0,0.15) 1px,transparent 1px);background-size:16px 16px;min-height:100vh;}
+header{position:sticky;top:0;z-index:5;background:var(--accent);border-bottom:4px solid #000;padding:16px;padding-top:max(16px,env(safe-area-inset-top));}
+header h1{font-family:'Arial Black',Impact,sans-serif;font-size:1.3rem;text-transform:uppercase;}
+header p{font-size:0.8rem;font-weight:700;}
+main{max-width:640px;margin:0 auto;padding:16px 16px 48px;}
+h2{font-family:'Arial Black',Impact,sans-serif;font-size:1rem;text-transform:uppercase;margin:24px 0 12px;}
+.panel{background:#fff;border:3px solid #000;box-shadow:var(--shadow);padding:16px;margin-bottom:16px;}
+.panel p,.panel li{font-size:0.9rem;}
+.panel ol{padding-left:20px;display:grid;gap:6px;margin-bottom:14px;}
+button{cursor:pointer;border:3px solid #000;border-radius:0;padding:10px 14px;font:inherit;font-size:0.85rem;font-weight:700;text-transform:uppercase;
+  background:var(--blue);color:#fff;box-shadow:3px 3px 0 #000;transition:transform .08s,box-shadow .08s;}
+button:active{transform:translate(3px,3px);box-shadow:0 0 0 #000;}
+button.secondary{background:#fff;color:#000;}
+button.danger{background:#fff;color:var(--danger);}
+button:disabled{opacity:.5;cursor:default;}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+input[type=text],input[type=file]{width:100%;padding:10px 12px;border:3px solid #000;border-radius:0;background:#fff;font:inherit;font-size:0.95rem;margin-bottom:12px;}
+input[type=text]:focus{outline:none;box-shadow:4px 4px 0 var(--blue);}
+label{display:block;font-size:0.8rem;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
+.device{border:3px solid #000;box-shadow:var(--shadow);margin-bottom:16px;background:#fff;}
+.device-head{padding:12px 14px;border-bottom:3px solid #000;display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--accent);}
+.device:nth-child(4n+2) .device-head{background:var(--pink);}
+.device:nth-child(4n+3) .device-head{background:var(--sky);}
+.device:nth-child(4n+4) .device-head{background:var(--orange);}
+.device-head h3{font-family:'Arial Black',Impact,sans-serif;font-size:0.95rem;text-transform:uppercase;overflow-wrap:anywhere;}
+.badge{font-size:0.7rem;font-weight:700;text-transform:uppercase;border:2px solid #000;padding:0 6px;background:#fff;white-space:nowrap;}
+.badge.online{background:#000;color:#fff;}
+.badge.offline{color:var(--danger);}
+.device-body{padding:12px 14px;display:grid;gap:10px;}
+.addr{font-size:0.8rem;background:#000;color:#fff;padding:2px 8px;justify-self:start;overflow-wrap:anywhere;}
+.empty{font-weight:700;text-transform:uppercase;text-align:center;padding:24px 8px;}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
+.tabs button{padding:10px 6px;font-size:0.75rem;}
+.tabs button[aria-selected=true]{background:#000;color:#fff;}
+.hidden{display:none !important;}
+.progress{height:16px;border:3px solid #000;background:#fff;margin:12px 0 6px;}
+.progress div{height:100%;width:0;background:var(--blue);}
+.msg{font-size:0.85rem;font-weight:700;margin-top:10px;}
+.msg.error{color:var(--danger);}
+.found{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:2px solid #000;padding:10px 0;}
+.found:first-child{border-top:none;}
+details summary{cursor:pointer;font-family:'Arial Black',Impact,sans-serif;text-transform:uppercase;font-size:0.95rem;}
+details[open] summary{margin-bottom:12px;}
+code{background:#000;color:#fff;padding:0 4px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>&#128187; NAS Controller</h1>
+  <p>Find, set up and open your Media Server</p>
+</header>
 
-    // Automatically start the embedded Node.js backend when app launches
-    async function startNodeBackend() {
-      try {
-        await CapacitorNodeJS.start({ 
-          // If your node files are in public/node or root nodejs folder, 
-          // ensure the engine is pointed to the correct startup script
-        });
-        console.log('Embedded Node.js server started.');
-      } catch (err) {
-        console.error('Node backend start error:', err);
-      }
+<main>
+  <div id="notNative" class="panel hidden">
+    <p><strong>Open this page inside the NAS Controller app.</strong> Finding devices on Wi-Fi needs the app.</p>
+  </div>
+
+  <h2>My devices</h2>
+  <div id="devices"></div>
+  <div class="row" style="margin-bottom:8px;">
+    <button class="secondary" onclick="refreshStatus()">&#8635; Check status</button>
+  </div>
+
+  <h2>Add a device</h2>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="scan" onclick="showTab('scan')">Find on Wi-Fi</button>
+    <button role="tab" aria-selected="false" data-tab="setup" onclick="showTab('setup')">New NAS</button>
+    <button role="tab" aria-selected="false" data-tab="manual" onclick="showTab('manual')">By address</button>
+  </div>
+
+  <section id="tab-scan" class="panel">
+    <p>Connect this phone to the same Wi-Fi as the NAS (or turn on this phone's hotspot if the NAS uses it), then scan.</p>
+    <div class="row" style="margin-top:12px;"><button id="scanBtn" onclick="scan()">Scan this network</button></div>
+    <div id="scanProgress" class="hidden">
+      <div class="progress"><div id="scanBar"></div></div>
+      <p id="scanText" class="msg"></p>
+    </div>
+    <div id="scanResults" style="margin-top:8px;"></div>
+  </section>
+
+  <section id="tab-setup" class="panel hidden">
+    <ol>
+      <li>Power on the NAS. If it has no saved Wi-Fi, it shows <strong>Configure WiFi</strong> on its screen.</li>
+      <li>Open this phone's Wi-Fi settings and join <code>ESP32-NAS-Setup</code> (password <code>12345678</code>). Android may open the setup page by itself.</li>
+      <li>If it doesn't, come back here and tap <strong>Open setup page</strong>.</li>
+      <li>Pick your home Wi-Fi, enter its password and save. The NAS restarts and joins it.</li>
+      <li>Reconnect this phone to your home Wi-Fi and use <strong>Find on Wi-Fi</strong>.</li>
+    </ol>
+    <div class="row">
+      <button onclick="openUrl('http://192.168.4.1/')">Open setup page</button>
+      <button class="secondary" onclick="showTab('scan')">Next: find it</button>
+    </div>
+  </section>
+
+  <section id="tab-manual" class="panel hidden">
+    <label for="manualName">Name</label>
+    <input type="text" id="manualName" placeholder="Home NAS">
+    <label for="manualAddr">Address</label>
+    <input type="text" id="manualAddr" placeholder="10.180.31.67 or media-server.app" autocapitalize="off" autocorrect="off">
+    <p style="margin-bottom:12px;">Use the IP on the NAS screen at home, or your Cloudflare address (e.g. <code>media-server.app</code>) to reach it from anywhere.</p>
+    <button onclick="addManual()">Add device</button>
+    <p id="manualMsg" class="msg"></p>
+  </section>
+
+  <h2>Tools</h2>
+  <details class="panel">
+    <summary>&#128275; Decrypt a file from the SD card</summary>
+    <p style="margin-bottom:12px;">Files on the NAS SD card are encrypted. To read one in a card reader, pick it here with the NAS's AES key.</p>
+    <label for="decFile">Encrypted file</label>
+    <input type="file" id="decFile">
+    <label for="decKey">AES key (16 bytes)</label>
+    <input type="text" id="decKey" placeholder="0x2B, 0x7E, 0x15, ... or 32 hex characters" autocapitalize="off" autocorrect="off">
+    <button onclick="decryptFile()">Decrypt &amp; save</button>
+    <p id="decMsg" class="msg"></p>
+  </details>
+</main>
+
+<!-- Capacitor core (copy of node_modules/@capacitor/core/dist/capacitor.js) so plugins work without a bundler -->
+<script src="capacitor.js"></script>
+<script>
+// ---- Native plugins ----
+var CapX = window.capacitorExports;
+var isNative = !!(CapX && CapX.Capacitor.isNativePlatform());
+var Plugins = isNative ? {
+  CapacitorHttp: CapX.CapacitorHttp,
+  NetInfo: CapX.registerPlugin('NetInfo'),       // android/.../NetInfoPlugin.java
+  Filesystem: CapX.registerPlugin('Filesystem')  // @capacitor/filesystem
+} : null;
+if (!isNative) document.getElementById('notNative').classList.remove('hidden');
+
+var STORE_KEY = 'nas.devices';
+var statusById = {};
+
+function loadDevices() { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch (e) { return []; } }
+function saveDevices(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+// "10.0.0.5" -> "http://10.0.0.5", "media-server.app" -> "https://media-server.app"
+function normalizeAddress(input) {
+  var a = String(input || '').trim().replace(/\/+$/, '');
+  if (!a) return '';
+  if (/^https?:\/\//i.test(a)) return a;
+  var host = a.split('/')[0].split(':')[0];
+  var local = /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || /\.local$/i.test(host);
+  return (local ? 'http://' : 'https://') + a;
+}
+
+// Native HTTP (no CORS, real timeouts). Throws if not inside the app.
+function httpGet(url, ms) {
+  if (!Plugins) return Promise.reject(new Error('Not inside the app'));
+  return Plugins.CapacitorHttp.get({ url: url, connectTimeout: ms, readTimeout: ms, responseType: 'text', headers: {} });
+}
+
+function isNasResponse(r) { return r && r.status === 200 && String(r.data).indexOf('Media Server') !== -1; }
+
+function addDevice(name, address) {
+  var list = loadDevices();
+  if (list.some(function (d) { return d.address === address; })) return false;
+  list.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: name || 'Media Server', address: address });
+  saveDevices(list);
+  renderDevices();
+  checkDevice(list[list.length - 1]);
+  return true;
+}
+
+function renderDevices() {
+  var list = loadDevices();
+  var box = document.getElementById('devices');
+  if (!list.length) { box.innerHTML = "<div class='panel empty'>No devices yet. Add one below.</div>"; return; }
+  box.innerHTML = list.map(function (d) {
+    var st = statusById[d.id] || 'unknown';
+    var label = st === 'online' ? 'Online' : st === 'offline' ? 'Not reachable' : st === 'checking' ? 'Checking...' : 'Unknown';
+    return "<div class='device'><div class='device-head'><h3>" + esc(d.name) + "</h3><span class='badge " + st + "'>" + label + "</span></div>" +
+      "<div class='device-body'><span class='addr'>" + esc(d.address) + "</span><div class='row'>" +
+      "<button onclick=\"openDevice('" + d.id + "')\">Open</button>" +
+      "<button class='secondary' onclick=\"renameDevice('" + d.id + "')\">Rename</button>" +
+      "<button class='danger' onclick=\"removeDevice('" + d.id + "')\">Remove</button></div></div></div>";
+  }).join('');
+}
+
+function findDevice(id) { return loadDevices().filter(function (d) { return d.id === id; })[0]; }
+
+function openDevice(id) { var d = findDevice(id); if (d) openUrl(d.address + '/'); }
+function openUrl(url) { window.location.href = url; } // MainActivity's back button returns here
+
+function renameDevice(id) {
+  var d = findDevice(id); if (!d) return;
+  var n = prompt('New name', d.name); if (!n) return;
+  saveDevices(loadDevices().map(function (x) { if (x.id === id) x.name = n.trim(); return x; }));
+  renderDevices();
+}
+
+function removeDevice(id) {
+  var d = findDevice(id); if (!d || !confirm('Remove ' + d.name + ' from this app? Nothing on the NAS is deleted.')) return;
+  saveDevices(loadDevices().filter(function (x) { return x.id !== id; }));
+  delete statusById[id];
+  renderDevices();
+}
+
+function checkDevice(d) {
+  statusById[d.id] = 'checking'; renderDevices();
+  return httpGet(d.address + '/login', 4000)
+    .then(function (r) { statusById[d.id] = isNasResponse(r) ? 'online' : 'offline'; })
+    .catch(function () { statusById[d.id] = 'offline'; })
+    .then(renderDevices);
+}
+
+function refreshStatus() { if (Plugins) loadDevices().forEach(checkDevice); }
+
+function showTab(name) {
+  ['scan', 'setup', 'manual'].forEach(function (t) { document.getElementById('tab-' + t).classList.toggle('hidden', t !== name); });
+  document.querySelectorAll('.tabs button').forEach(function (b) { b.setAttribute('aria-selected', b.dataset.tab === name ? 'true' : 'false'); });
+}
+
+// ---- Scan: same idea as the old start_nas.js, but inside the app ----
+var LAN_IFACE = /^(wlan|swlan|ap|softap|eth|rndis|bt-pan)/i;
+
+function scan() {
+  var btn = document.getElementById('scanBtn'), bar = document.getElementById('scanBar'), text = document.getElementById('scanText'), results = document.getElementById('scanResults');
+  results.innerHTML = '';
+  document.getElementById('scanProgress').classList.remove('hidden');
+  text.className = 'msg';
+  if (!Plugins) { text.textContent = 'Scanning only works inside the NAS Controller app.'; text.className = 'msg error'; return; }
+  btn.disabled = true;
+  text.textContent = 'Reading this phone\'s network...';
+
+  Plugins.NetInfo.getNetworks().then(function (res) {
+    var nets = res.networks || [];
+    var lan = nets.filter(function (n) { return LAN_IFACE.test(n.name); });
+    if (!lan.length) lan = nets.filter(function (n) { return !/^(rmnet|ccmni|tun|ppp|dummy|v4-)/i.test(n.name); }); // skip mobile data and VPN
+    if (!lan.length) throw new Error('This phone is not on a Wi-Fi network or hotspot.');
+
+    var own = {}, ips = [], seen = {};
+    lan.forEach(function (n) {
+      own[n.address] = true;
+      var p = n.address.split('.'), base = p[0] + '.' + p[1] + '.' + p[2] + '.';
+      if (seen[base]) return; seen[base] = true;
+      for (var i = 1; i <= 254; i++) ips.push(base + i);
+    });
+    ips = ips.filter(function (ip) { return !own[ip]; });
+
+    var found = [], done = 0, next = 0;
+    text.textContent = 'Scanning ' + Object.keys(seen).map(function (b) { return b + 'x'; }).join(', ') + '...';
+    function worker() {
+      if (next >= ips.length) return Promise.resolve();
+      var ip = ips[next++];
+      return httpGet('http://' + ip + '/login', 1500)
+        .then(function (r) { if (isNasResponse(r)) { found.push(ip); showFound(ip); } })
+        .catch(function () {})
+        .then(function () { done++; bar.style.width = Math.round(done / ips.length * 100) + '%'; return worker(); });
     }
-    startNodeBackend();
+    var workers = []; for (var w = 0; w < 40; w++) workers.push(worker());
+    return Promise.all(workers).then(function () {
+      text.textContent = found.length ? 'Done. Found ' + found.length + ' NAS device' + (found.length > 1 ? 's' : '') + '.'
+        : 'No NAS found. Check it is powered on and on this Wi-Fi. Some college/office Wi-Fi blocks devices from seeing each other.';
+      text.className = found.length ? 'msg' : 'msg error';
+    });
+  }).catch(function (e) {
+    text.textContent = e.message || String(e); text.className = 'msg error';
+  }).then(function () { btn.disabled = false; });
+}
 
-    // Make functions globally available to HTML onclick bindings
-    window.startTunnel = async function() {
-      try {
-        const permResult = await AndroidForegroundService.checkPermissions();
-        if (permResult.display !== 'granted') {
-          await AndroidForegroundService.requestPermissions();
-        }
+function showFound(ip) {
+  var addr = 'http://' + ip;
+  var known = loadDevices().some(function (d) { return d.address === addr; });
+  var div = document.createElement('div');
+  div.className = 'found';
+  div.innerHTML = "<span><strong>Media Server</strong><br>" + esc(ip) + "</span>" +
+    (known ? "<span class='badge'>Saved</span>" : "<button>Add</button>");
+  var b = div.querySelector('button');
+  if (b) b.onclick = function () { addDevice('Media Server', addr); b.outerHTML = "<span class='badge'>Saved</span>"; };
+  document.getElementById('scanResults').appendChild(div);
+}
 
-        await AndroidForegroundService.startForegroundService({
-          title: 'NAS Tunnel Active',
-          body: 'Your network storage service is running in the background.',
-          id: 999,
-          smallIcon: 'ic_stat_icon_config_sample'
-        });
+function addManual() {
+  var msg = document.getElementById('manualMsg');
+  var addr = normalizeAddress(document.getElementById('manualAddr').value);
+  if (!addr) { msg.textContent = 'Enter an address.'; msg.className = 'msg error'; return; }
+  var ok = addDevice(document.getElementById('manualName').value.trim(), addr);
+  msg.textContent = ok ? 'Added ' + addr : 'That address is already saved.';
+  msg.className = ok ? 'msg' : 'msg error';
+  if (ok) { document.getElementById('manualName').value = ''; document.getElementById('manualAddr').value = ''; }
+}
 
-        const res = await fetch('http://localhost:5050/api/tunnel/start', { method: 'POST' });
-        const data = await res.json();
-        console.log(data);
-        updateStatus(true);
-      } catch (err) {
-        console.error('Failed to start service/tunnel:', err);
-        alert('Error starting tunnel: ' + err.message);
-      }
-    };
+// ---- SD card decryptor: AES-128-CTR, same key/IV scheme as the firmware's cryptChunk() ----
+var AES_IV = new Uint8Array([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F]);
 
-    window.stopTunnel = async function() {
-      try {
-        await AndroidForegroundService.stopForegroundService();
-        await fetch('http://localhost:5050/api/tunnel/stop', { method: 'POST' });
-        updateStatus(false);
-      } catch (err) {
-        console.error('Failed to stop service/tunnel:', err);
-      }
-    };
-  </script>
+function parseKey(text) {
+  var t = String(text).trim(), bytes;
+  if (/^[0-9a-f]{32}$/i.test(t)) bytes = t.match(/../g).map(function (h) { return parseInt(h, 16); });
+  else bytes = t.split(',').map(function (b) { return parseInt(b.trim(), 16); });
+  if (bytes.length !== 16 || bytes.some(function (b) { return isNaN(b) || b < 0 || b > 255; })) throw new Error('The key must be 16 bytes, e.g. 0x2B, 0x7E, ... (16 values).');
+  return new Uint8Array(bytes);
+}
+
+function toBase64(buf) {
+  var bytes = new Uint8Array(buf), out = '', CH = 0x8000;
+  for (var i = 0; i < bytes.length; i += CH) out += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  return btoa(out);
+}
+
+function decryptFile() {
+  var msg = document.getElementById('decMsg'), file = document.getElementById('decFile').files[0];
+  msg.className = 'msg';
+  if (!file) { msg.textContent = 'Choose a file first.'; msg.className = 'msg error'; return; }
+  var key;
+  try { key = parseKey(document.getElementById('decKey').value); } catch (e) { msg.textContent = e.message; msg.className = 'msg error'; return; }
+  msg.textContent = 'Decrypting ' + file.name + '...';
+  Promise.all([crypto.subtle.importKey('raw', key, 'AES-CTR', false, ['decrypt']), file.arrayBuffer()])
+    .then(function (r) { return crypto.subtle.decrypt({ name: 'AES-CTR', counter: AES_IV, length: 64 }, r[0], r[1]); })
+    .then(function (plain) {
+      if (!Plugins) throw new Error('Saving files only works inside the app.');
+      return Plugins.Filesystem.writeFile({ path: 'NAS-decrypted/' + file.name, data: toBase64(plain), directory: 'DOCUMENTS', recursive: true });
+    })
+    .then(function () { msg.textContent = 'Saved to Documents/NAS-decrypted/' + file.name; })
+    .catch(function (e) { msg.textContent = 'Failed: ' + (e.message || e); msg.className = 'msg error'; });
+}
+
+renderDevices();
+refreshStatus();
+</script>
+</body>
+</html>

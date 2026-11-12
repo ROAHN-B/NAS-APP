@@ -4,6 +4,13 @@
   "webDir": "public",
   "server": {
     "cleartext": true,
-    "androidScheme": "http"
+    "androidScheme": "http",
+    "allowNavigation": [
+      "10.*.*.*",
+      "192.168.*.*",
+      "172.*.*.*",
+      "media-server.app",
+      "*.media-server.app"
+    ]
   }
 }

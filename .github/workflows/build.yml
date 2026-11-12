@@ -25,11 +25,6 @@ jobs:
       - name: Install Root Dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Install Node Backend Dependencies
-        run: |
-          cd nodejs
-          npm install --legacy-peer-deps || true
-
       - name: Sync Capacitor Android
         run: npx cap sync android
 
