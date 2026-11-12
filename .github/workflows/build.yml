@@ -2,6 +2,12 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
+
+env:
+  # cloudflared release bundled in the app for "Host online" (https://github.com/cloudflare/cloudflared/releases)
+  CLOUDFLARED_VERSION: '2026.10.7'
+  CLOUDFLARED_SO: android/app/src/main/jniLibs/arm64-v8a/libcloudflared.so
 
 jobs:
   build:
@@ -10,6 +16,43 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+
+      # cloudflared is built for Android (not the Linux release) so it uses Android's DNS resolver.
+      - name: Restore cloudflared build
+        id: cloudflared-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CLOUDFLARED_SO }}
+          key: cloudflared-android-arm64-${{ env.CLOUDFLARED_VERSION }}
+
+      - name: Download cloudflared source
+        if: steps.cloudflared-cache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "$CLOUDFLARED_VERSION" https://github.com/cloudflare/cloudflared.git cloudflared-src
+
+      - name: Setup Go
+        if: steps.cloudflared-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: cloudflared-src/go.mod
+          cache: false
+
+      - name: Build cloudflared for Android (arm64)
+        if: steps.cloudflared-cache.outputs.cache-hit != 'true'
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          mkdir -p "$(dirname "$CLOUDFLARED_SO")"
+          cd cloudflared-src
+          CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
+          CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" \
+          go build -mod=readonly -trimpath \
+            -ldflags "-s -w -X main.Version=$CLOUDFLARED_VERSION" \
+            -o "$GITHUB_WORKSPACE/$CLOUDFLARED_SO" ./cmd/cloudflared
+
+      - name: Check cloudflared binary
+        run: |
+          file "$CLOUDFLARED_SO"
+          file "$CLOUDFLARED_SO" | grep -q "ARM aarch64"
+          ls -lh "$CLOUDFLARED_SO"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -33,6 +76,9 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
+
+      - name: Check cloudflared is inside the APK
+        run: unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep "lib/arm64-v8a/libcloudflared.so"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

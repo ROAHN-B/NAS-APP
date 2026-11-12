@@ -3,3 +3,6 @@ android/
 ios/
 dist/
 build/
+# built by GitHub Actions (see .github/workflows/build.yml)
+android/app/src/main/jniLibs/arm64-v8a/libcloudflared.so
+cloudflared-src/

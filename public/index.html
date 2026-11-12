@@ -26,6 +26,10 @@ button:disabled{opacity:.5;cursor:default;}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
 input[type=text],input[type=file]{width:100%;padding:10px 12px;border:3px solid #000;border-radius:0;background:#fff;font:inherit;font-size:0.95rem;margin-bottom:12px;}
 input[type=text]:focus{outline:none;box-shadow:4px 4px 0 var(--blue);}
+select{width:100%;padding:10px 12px;border:3px solid #000;border-radius:0;background:#fff;font:inherit;font-size:0.95rem;margin-bottom:12px;}
+.log{background:#000;color:#e8e8e8;font-size:0.7rem;line-height:1.4;padding:10px;margin-top:12px;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-all;}
+.log:empty{display:none;}
+.step{margin-top:14px;}
 label{display:block;font-size:0.8rem;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
 .device{border:3px solid #000;box-shadow:var(--shadow);margin-bottom:16px;background:#fff;}
 .device-head{padding:12px 14px;border-bottom:3px solid #000;display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--accent);}
@@ -112,6 +116,41 @@ code{background:#000;color:#fff;padding:0 4px;}
     <p id="manualMsg" class="msg"></p>
   </section>
 
+  <h2>Host online</h2>
+  <section class="panel" id="hostPanel">
+    <div class="row" style="justify-content:space-between;">
+      <strong>Cloudflare tunnel</strong>
+      <span id="tunnelBadge" class="badge">Stopped</span>
+    </div>
+    <p style="margin-top:8px;">Puts a NAS online at your Cloudflare address (e.g. <code>media-server.app</code>) from this phone. Only the phone at home next to the NAS needs this.</p>
+    <p id="tunnelUnsupported" class="msg error hidden">This phone can't host the tunnel: it needs a 64-bit ARM phone.</p>
+
+    <label class="step">1. Tunnel key</label>
+    <p id="keyStatus" style="margin-bottom:8px;">No key imported.</p>
+    <details style="margin-bottom:10px;"><summary style="font-family:inherit;font-size:0.8rem;text-transform:none;">Where do I get it?</summary>
+      <p style="font-size:0.8rem;">It's the <code>&lt;tunnel-id&gt;.json</code> file cloudflared created when you made the tunnel. In Termux, copy it to Download with <code>cp ~/.cloudflared/*.json ~/storage/shared/Download/</code>, then pick it below. Keep it private: anyone with it can run your tunnel.</p>
+    </details>
+    <input type="file" id="keyFile" accept=".json,application/json">
+    <div class="row">
+      <button class="secondary" onclick="importKey()">Import key</button>
+      <button class="danger hidden" id="removeKeyBtn" onclick="removeKey()">Remove key</button>
+    </div>
+
+    <label class="step" for="hostDevice">2. NAS to put online</label>
+    <select id="hostDevice" onchange="rememberHostDevice()"></select>
+    <p id="noLocalDevice" class="hidden" style="font-size:0.85rem;margin-bottom:10px;">Add your NAS first with <strong>Find on Wi-Fi</strong> above.</p>
+
+    <label class="step">3. Start</label>
+    <div class="row">
+      <button id="tunnelStartBtn" onclick="startTunnel()">Start tunnel</button>
+      <button class="secondary" id="tunnelStopBtn" onclick="stopTunnel()">Stop</button>
+      <button class="secondary" onclick="openBatterySettings()">Battery settings</button>
+    </div>
+    <p id="tunnelMsg" class="msg"></p>
+    <p style="font-size:0.8rem;margin-top:10px;">Keep this phone on the same Wi-Fi as the NAS. In <strong>Battery settings</strong>, set NAS Controller to <em>Unrestricted</em> / <em>Don't optimise</em> so Android doesn't stop the tunnel.</p>
+    <pre id="tunnelLog" class="log"></pre>
+  </section>
+
   <h2>Tools</h2>
   <details class="panel">
     <summary>&#128275; Decrypt a file from the SD card</summary>
@@ -134,7 +173,8 @@ var isNative = !!(CapX && CapX.Capacitor.isNativePlatform());
 var Plugins = isNative ? {
   CapacitorHttp: CapX.CapacitorHttp,
   NetInfo: CapX.registerPlugin('NetInfo'),       // android/.../NetInfoPlugin.java
-  Filesystem: CapX.registerPlugin('Filesystem')  // @capacitor/filesystem
+  Filesystem: CapX.registerPlugin('Filesystem'), // @capacitor/filesystem
+  Tunnel: CapX.registerPlugin('Tunnel')          // android/.../TunnelPlugin.java + TunnelService.java
 } : null;
 if (!isNative) document.getElementById('notNative').classList.remove('hidden');
 
@@ -175,6 +215,7 @@ function addDevice(name, address) {
 }
 
 function renderDevices() {
+  refreshHostDevices();
   var list = loadDevices();
   var box = document.getElementById('devices');
   if (!list.length) { box.innerHTML = "<div class='panel empty'>No devices yet. Add one below.</div>"; return; }
@@ -327,8 +368,89 @@ function decryptFile() {
     .catch(function (e) { msg.textContent = 'Failed: ' + (e.message || e); msg.className = 'msg error'; });
 }
 
+// ---- Host online: runs cloudflared on this phone (TunnelService) ----
+var HOST_KEY = 'nas.hostDevice';
+var TUNNEL_LABELS = { stopped: 'Stopped', starting: 'Connecting...', connected: 'Online', error: 'Stopped (error)' };
+
+function refreshHostDevices() {
+  var sel = document.getElementById('hostDevice');
+  var local = loadDevices().filter(function (d) { return d.address.indexOf('http://') === 0; });
+  var want = sel.value || localStorage.getItem(HOST_KEY) || '';
+  sel.innerHTML = local.map(function (d) {
+    return "<option value='" + esc(d.address) + "'>" + esc(d.name) + " (" + esc(d.address.replace('http://', '')) + ")</option>";
+  }).join('');
+  if (local.some(function (d) { return d.address === want; })) sel.value = want;
+  document.getElementById('noLocalDevice').classList.toggle('hidden', local.length > 0);
+  sel.classList.toggle('hidden', local.length === 0);
+}
+function rememberHostDevice() { localStorage.setItem(HOST_KEY, document.getElementById('hostDevice').value); }
+
+function tunnelMsg(text, isError) { var m = document.getElementById('tunnelMsg'); m.textContent = text || ''; m.className = isError ? 'msg error' : 'msg'; }
+
+function loadTunnelConfig() {
+  if (!Plugins) return;
+  Plugins.Tunnel.getConfig().then(function (c) {
+    document.getElementById('tunnelUnsupported').classList.toggle('hidden', !!c.supported);
+    document.getElementById('keyStatus').textContent = c.tunnelId ? 'Key imported for tunnel ' + c.tunnelId.slice(0, 8) + '...' : 'No key imported.';
+    document.getElementById('removeKeyBtn').classList.toggle('hidden', !c.tunnelId);
+  });
+}
+
+function importKey() {
+  var file = document.getElementById('keyFile').files[0];
+  if (!file) { tunnelMsg('Choose the key file first.', true); return; }
+  if (!Plugins) { tunnelMsg('This only works inside the app.', true); return; }
+  file.text()
+    .then(function (json) { return Plugins.Tunnel.saveCredentials({ json: json }); })
+    .then(function (r) { tunnelMsg('Key imported for tunnel ' + r.tunnelId.slice(0, 8) + '...'); document.getElementById('keyFile').value = ''; loadTunnelConfig(); })
+    .catch(function (e) { tunnelMsg(e.message || String(e), true); });
+}
+
+function removeKey() {
+  if (!confirm('Remove the tunnel key from this phone? You can import it again later.')) return;
+  Plugins.Tunnel.removeCredentials().then(function () { tunnelMsg('Key removed.'); loadTunnelConfig(); });
+}
+
+function startTunnel() {
+  if (!Plugins) { tunnelMsg('This only works inside the app.', true); return; }
+  var url = document.getElementById('hostDevice').value;
+  if (!url) { tunnelMsg('Add your NAS first with Find on Wi-Fi.', true); return; }
+  tunnelMsg('Checking the NAS at ' + url + '...');
+  httpGet(url + '/login', 3000)
+    .then(function (r) { if (!isNasResponse(r)) throw new Error('not a NAS'); },
+          function () { throw new Error('not reachable'); })
+    .then(function () { return Plugins.Tunnel.start({ url: url }); },
+          function () { throw new Error("Can't reach the NAS at " + url + '. Is this phone on the same Wi-Fi? If its IP changed, scan again.'); })
+    .then(function () { tunnelMsg('Starting...'); pollTunnel(); })
+    .catch(function (e) { tunnelMsg(e.message || String(e), true); });
+}
+
+function stopTunnel() { if (Plugins) Plugins.Tunnel.stop().then(pollTunnel); }
+function openBatterySettings() { if (Plugins) Plugins.Tunnel.openBatterySettings(); }
+
+function pollTunnel() {
+  if (!Plugins) return;
+  Plugins.Tunnel.getStatus().then(function (s) {
+    var badge = document.getElementById('tunnelBadge');
+    badge.textContent = s.state === 'connected' ? 'Online (' + s.connections + ')' : (TUNNEL_LABELS[s.state] || s.state);
+    badge.className = 'badge' + (s.state === 'connected' ? ' online' : s.state === 'error' ? ' offline' : '');
+    var running = s.state === 'starting' || s.state === 'connected';
+    document.getElementById('tunnelStartBtn').disabled = running;
+    document.getElementById('tunnelStopBtn').disabled = !running;
+    if (s.state === 'connected') tunnelMsg('Your NAS (' + s.url + ') is online at your Cloudflare address.');
+    else if (s.state === 'error') tunnelMsg('The tunnel stopped. The log below says why.', true);
+    var box = document.getElementById('tunnelLog');
+    var atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+    box.textContent = (s.log || []).join('\n');
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }).catch(function () {});
+}
+
 renderDevices();
 refreshStatus();
+loadTunnelConfig();
+pollTunnel();
+if (Plugins) setInterval(function () { if (!document.hidden) pollTunnel(); }, 1500);
 </script>
 </body>
 </html>

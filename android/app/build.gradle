@@ -1,6 +1,13 @@
 apply plugin: 'com.android.application'
 
 android {
+    // cloudflared ships as lib/arm64-v8a/libcloudflared.so (built in CI). It must be extracted to
+    // nativeLibraryDir, the only place Android lets an app run a program from.
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
     namespace "com.rohan.nascontroller"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {

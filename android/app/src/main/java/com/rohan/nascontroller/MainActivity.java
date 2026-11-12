@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(NetInfoPlugin.class);
+        registerPlugin(TunnelPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Back button: go back inside the app (e.g. from the NAS page to the device list) before closing it.
