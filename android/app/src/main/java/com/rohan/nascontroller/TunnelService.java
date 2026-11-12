@@ -135,10 +135,12 @@ public class TunnelService extends Service {
             return;
         }
 
+        // Flag order matters: --no-autoupdate is global (before "tunnel"), --grace-period belongs to "tunnel".
         ProcessBuilder pb = new ProcessBuilder(
             bin.getAbsolutePath(),
+            "--no-autoupdate",
             "tunnel", "--grace-period", "2s",
-            "run", "--no-autoupdate",
+            "run",
             "--url", url,
             "--credentials-file", credentialsFile(this).getAbsolutePath(),
             tunnelId
