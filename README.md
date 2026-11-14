@@ -6,6 +6,11 @@
 
 The app is a [Capacitor](https://capacitorjs.com/) app: a single web page (`public/index.html`) plus a few small native Android plugins.
 
+<p align="center">
+  <img src="docs/images/nas-setup.jpg" alt="The ESP32 NAS board with its OLED screen and batteries, the NAS Controller app on a phone, and the Home Media Server web interface on a laptop showing colour-coded folder tiles" width="820">
+</p>
+<p align="center"><em>The whole setup: the ESP32 NAS (front right, with its OLED status screen), the NAS Controller app on the phone, and the NAS web interface open on the laptop through its Cloudflare address.</em></p>
+
 ---
 
 ## Contents
