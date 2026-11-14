@@ -117,7 +117,7 @@ After switching folders, the next **Sync with Drive** on the NAS uploads the fil
 4. Tap **Battery settings** and set NAS Controller to **Unrestricted** / **Don't optimise**, so Android doesn't stop the tunnel.
 
 ### Decrypt a file from the SD card
-**Tools → Decrypt a file from the SD card**: pick the file, enter the NAS's 16-byte AES key (`0x2B, 0x7E, …` or 32 hex characters), and tap **Decrypt & save**.
+**Tools → Decrypt a file from the SD card**: pick the file, enter the NAS's 16-byte AES key (`0xA1, 0xB2, …` or 32 hex characters), and tap **Decrypt & save**.
 
 ---
 

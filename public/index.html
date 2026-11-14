@@ -164,7 +164,7 @@ code{background:#000;color:#fff;padding:0 4px;}
     <label for="decFile">Encrypted file</label>
     <input type="file" id="decFile">
     <label for="decKey">AES key (16 bytes)</label>
-    <input type="text" id="decKey" placeholder="0x2B, 0x7E, 0x15, ... or 32 hex characters" autocapitalize="off" autocorrect="off">
+    <input type="text" id="decKey" placeholder="0xA1, 0xB2, 0xC3, ... or 32 hex characters" autocapitalize="off" autocorrect="off">
     <button onclick="decryptFile()">Decrypt &amp; save</button>
     <p id="decMsg" class="msg"></p>
   </details>
@@ -475,7 +475,7 @@ function parseKey(text) {
   var t = String(text).trim(), bytes;
   if (/^[0-9a-f]{32}$/i.test(t)) bytes = t.match(/../g).map(function (h) { return parseInt(h, 16); });
   else bytes = t.split(',').map(function (b) { return parseInt(b.trim(), 16); });
-  if (bytes.length !== 16 || bytes.some(function (b) { return isNaN(b) || b < 0 || b > 255; })) throw new Error('The key must be 16 bytes, e.g. 0x2B, 0x7E, ... (16 values).');
+  if (bytes.length !== 16 || bytes.some(function (b) { return isNaN(b) || b < 0 || b > 255; })) throw new Error('The key must be 16 bytes, e.g. 0xA1, 0xB2, ... (16 values).');
   return new Uint8Array(bytes);
 }
 
