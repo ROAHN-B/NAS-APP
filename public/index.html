@@ -24,8 +24,8 @@ button.secondary{background:#fff;color:#000;}
 button.danger{background:#fff;color:var(--danger);}
 button:disabled{opacity:.5;cursor:default;}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
-input[type=text],input[type=file]{width:100%;padding:10px 12px;border:3px solid #000;border-radius:0;background:#fff;font:inherit;font-size:0.95rem;margin-bottom:12px;}
-input[type=text]:focus{outline:none;box-shadow:4px 4px 0 var(--blue);}
+input[type=text],input[type=password],input[type=file]{width:100%;padding:10px 12px;border:3px solid #000;border-radius:0;background:#fff;font:inherit;font-size:0.95rem;margin-bottom:12px;}
+input[type=text]:focus,input[type=password]:focus{outline:none;box-shadow:4px 4px 0 var(--blue);}
 select{width:100%;padding:10px 12px;border:3px solid #000;border-radius:0;background:#fff;font:inherit;font-size:0.95rem;margin-bottom:12px;}
 .log{background:#000;color:#e8e8e8;font-size:0.7rem;line-height:1.4;padding:10px;margin-top:12px;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-all;}
 .log:empty{display:none;}
@@ -42,6 +42,12 @@ label{display:block;font-size:0.8rem;font-weight:700;text-transform:uppercase;ma
 .badge.offline{color:var(--danger);}
 .device-body{padding:12px 14px;display:grid;gap:10px;}
 .addr{font-size:0.8rem;background:#000;color:#fff;padding:2px 8px;justify-self:start;overflow-wrap:anywhere;}
+.drive-panel{border-top:2px dashed #000;padding-top:12px;display:grid;gap:4px;}
+.drive-panel .hint{font-size:0.8rem;margin-bottom:6px;}
+.drive-current{border:2px solid #000;background:#f4f1e8;padding:8px 10px;font-size:0.8rem;overflow-wrap:anywhere;margin-bottom:10px;}
+.drive-current a{color:#000;font-weight:700;}
+.drive-status{display:inline-block;margin-top:4px;font-weight:700;}
+.drive-status.ok{color:var(--blue);} .drive-status.error{color:var(--danger);}
 .empty{font-weight:700;text-transform:uppercase;text-align:center;padding:24px 8px;}
 .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
 .tabs button{padding:10px 6px;font-size:0.75rem;}
@@ -222,12 +228,26 @@ function renderDevices() {
   box.innerHTML = list.map(function (d) {
     var st = statusById[d.id] || 'unknown';
     var label = st === 'online' ? 'Online' : st === 'offline' ? 'Not reachable' : st === 'checking' ? 'Checking...' : 'Unknown';
-    return "<div class='device'><div class='device-head'><h3>" + esc(d.name) + "</h3><span class='badge " + st + "'>" + label + "</span></div>" +
+    return "<div class='device'><div class='device-head'><h3>" + esc(d.name) + "</h3><span class='badge " + st + "' data-badge='" + d.id + "'>" + label + "</span></div>" +
       "<div class='device-body'><span class='addr'>" + esc(d.address) + "</span><div class='row'>" +
       "<button onclick=\"openDevice('" + d.id + "')\">Open</button>" +
+      "<button class='secondary' onclick=\"toggleDrive('" + d.id + "')\">Drive folder</button>" +
       "<button class='secondary' onclick=\"renameDevice('" + d.id + "')\">Rename</button>" +
-      "<button class='danger' onclick=\"removeDevice('" + d.id + "')\">Remove</button></div></div></div>";
+      "<button class='danger' onclick=\"removeDevice('" + d.id + "')\">Remove</button></div>" +
+      "<div class='drive-panel hidden' id='drive-" + d.id + "'></div></div></div>";
   }).join('');
+  list.forEach(function (d) { renderDrivePanel(d.id); });
+}
+
+function statusLabel(st) { return st === 'online' ? 'Online' : st === 'offline' ? 'Not reachable' : st === 'checking' ? 'Checking...' : 'Unknown'; }
+
+// Updates one badge without redrawing the cards, so an open Drive folder panel keeps what you typed.
+function updateBadge(id) {
+  var el = document.querySelector("[data-badge='" + id + "']");
+  if (!el) return;
+  var st = statusById[id] || 'unknown';
+  el.className = 'badge ' + st;
+  el.textContent = statusLabel(st);
 }
 
 function findDevice(id) { return loadDevices().filter(function (d) { return d.id === id; })[0]; }
@@ -250,11 +270,125 @@ function removeDevice(id) {
 }
 
 function checkDevice(d) {
-  statusById[d.id] = 'checking'; renderDevices();
+  statusById[d.id] = 'checking'; updateBadge(d.id);
   return httpGet(d.address + '/login', 4000)
     .then(function (r) { statusById[d.id] = isNasResponse(r) ? 'online' : 'offline'; })
     .catch(function () { statusById[d.id] = 'offline'; })
-    .then(renderDevices);
+    .then(function () { updateBadge(d.id); });
+}
+
+// ---- Google Drive folder per NAS (needs NAS firmware with /api/drive-folder) ----
+var drivePanels = {}; // per device id: { open, pwd, link, busy, msg, isError, info }
+
+// Same rules as parseDriveFolderId() in the NAS sketch: a folder link or a bare folder ID.
+function parseDriveFolderId(input) {
+  var t = String(input || '').trim();
+  var at = t.indexOf('/folders/');
+  if (at !== -1) t = t.slice(at + 9);
+  else { at = t.indexOf('id='); if (at !== -1) t = t.slice(at + 3); }
+  var m = /^[A-Za-z0-9_-]*/.exec(t)[0];
+  return (m.length >= 10 && m.length <= 100) ? m : '';
+}
+
+function toggleDrive(id) {
+  var p = drivePanels[id] || (drivePanels[id] = { open: false, pwd: '', link: '', busy: false, msg: '', isError: false, info: null });
+  p.open = !p.open;
+  renderDrivePanel(id);
+}
+
+function driveStatusText(info) {
+  if (info.status === 'ok') return 'Verified: "' + info.message + '"';
+  if (info.status === 'checking') return 'Checking with Google...';
+  if (info.status === 'error') return 'Problem: ' + info.message;
+  return 'Not checked yet';
+}
+
+function renderDrivePanel(id) {
+  var box = document.getElementById('drive-' + id), p = drivePanels[id];
+  if (!box) return;
+  if (!p || !p.open) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  var cur = '';
+  if (p.info) {
+    cur = "<div class='drive-current'><b>Current folder" + (p.info.isDefault ? " (default)" : "") + "</b><br>" +
+      "<a href='" + esc(p.info.link) + "'>" + esc(p.info.folderId) + "</a><br>" +
+      "<span class='drive-status " + esc(p.info.status) + "'>" + esc(driveStatusText(p.info)) + "</span></div>";
+  }
+  box.innerHTML =
+    "<p class='hint'>Files this NAS syncs or uploads to Google Drive go into this folder. The folder must belong to, or be shared (as editor) with, the Google account the NAS is connected to.</p>" + cur +
+    "<label for='dpwd-" + id + "'>Drive sync password</label>" +
+    "<input type='password' id='dpwd-" + id + "' autocomplete='off'>" +
+    "<label for='dlink-" + id + "'>New folder link</label>" +
+    "<input type='text' id='dlink-" + id + "' placeholder='https://drive.google.com/drive/folders/...' autocapitalize='off' autocorrect='off'>" +
+    "<div class='row'><button type='button' data-act='save'>Save folder</button>" +
+    "<button type='button' class='secondary' data-act='show'>Show current</button>" +
+    (p.info ? "<button type='button' class='secondary' data-act='check'>Check again</button>" : "") + "</div>" +
+    "<p class='msg" + (p.isError ? " error" : "") + "'></p>";
+  var pwd = box.querySelector('#dpwd-' + id), link = box.querySelector('#dlink-' + id);
+  pwd.value = p.pwd; link.value = p.link;
+  pwd.oninput = function () { p.pwd = pwd.value; };
+  link.oninput = function () { p.link = link.value; };
+  box.querySelector('.msg').textContent = p.msg;
+  box.querySelectorAll('button[data-act]').forEach(function (b) {
+    b.disabled = p.busy;
+    b.onclick = function () { driveAction(id, b.getAttribute('data-act')); };
+  });
+}
+
+function driveRequest(id, fields) {
+  var d = findDevice(id), p = drivePanels[id];
+  if (!Plugins) return Promise.reject(new Error('This only works inside the app.'));
+  if (!d) return Promise.reject(new Error('This NAS was removed.'));
+  if (!p.pwd) return Promise.reject(new Error('Enter the Drive sync password.'));
+  var body = 'pwd=' + encodeURIComponent(p.pwd) +
+    (fields.folder ? '&folder=' + encodeURIComponent(fields.folder) : '') + (fields.check ? '&check=1' : '');
+  return Plugins.CapacitorHttp.post({
+    url: d.address + '/api/drive-folder', data: body, responseType: 'text', connectTimeout: 6000, readTimeout: 6000,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  }).then(function (r) {
+    var data = null;
+    try { data = typeof r.data === 'string' ? JSON.parse(r.data) : r.data; } catch (e) { data = null; }
+    if (r.status === 403) throw new Error((data && data.error) || 'Wrong Drive sync password.');
+    if (r.status === 400) throw new Error((data && data.error) || 'That folder link was not accepted.');
+    if (r.status !== 200 || !data || !data.folderId) throw new Error('This NAS needs the latest firmware for this setting.');
+    return data;
+  }, function () { throw new Error("Can't reach this NAS. Check it is online."); });
+}
+
+function driveAction(id, kind) {
+  var p = drivePanels[id], fields = {};
+  if (kind === 'save') {
+    var fid = parseDriveFolderId(p.link);
+    if (!fid) { p.msg = 'Paste a Google Drive folder link, like https://drive.google.com/drive/folders/...'; p.isError = true; renderDrivePanel(id); return; }
+    fields.folder = fid;
+  }
+  if (kind === 'check') fields.check = 1;
+  p.busy = true; p.isError = false; p.msg = kind === 'save' ? 'Saving...' : 'Loading...';
+  renderDrivePanel(id);
+  driveRequest(id, fields).then(function (info) {
+    p.info = info; p.busy = false;
+    p.msg = kind === 'save' ? 'Saved. Future syncs and uploads go to this folder.' : '';
+    if (kind === 'save') p.link = '';
+    renderDrivePanel(id);
+    if (info.status === 'checking') pollDrive(id, 0);
+  }).catch(function (e) {
+    p.busy = false; p.msg = e.message || String(e); p.isError = true;
+    renderDrivePanel(id);
+  });
+}
+
+// The NAS checks a new folder with Google in the background; ask again until it has an answer.
+function pollDrive(id, n) {
+  if (n >= 15) return;
+  setTimeout(function () {
+    var p = drivePanels[id];
+    if (!p || !p.open) return;
+    driveRequest(id, {}).then(function (info) {
+      p.info = info;
+      renderDrivePanel(id);
+      if (info.status === 'checking') pollDrive(id, n + 1);
+    }).catch(function () {});
+  }, 2000);
 }
 
 function refreshStatus() { if (Plugins) loadDevices().forEach(checkDevice); }
